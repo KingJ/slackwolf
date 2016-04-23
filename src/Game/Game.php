@@ -6,7 +6,9 @@ class Game
 {
     private $id;
     private $state;
-    private $players = [];
+    private $lobbyPlayers = [];
+    private $livingPlayers = [];
+    private $deadPlayers = [];
     private $originalPlayers = [];
     private $votes = [];
     private $winningTeam;
@@ -15,6 +17,7 @@ class Game
     private $guardedUserId;
     private $lastGuardedUserId;
     private $roleStrategy;
+    private $optionsManager;
 
     /**
      * @param                       $id
@@ -24,16 +27,22 @@ class Game
     public function __construct($id, array $users, RoleStrategyInterface $roleStrategy)
     {
         $this->id = $id;
-
         $this->roleStrategy = $roleStrategy;
-        $players = $roleStrategy->assign($users);
+        $this->optionsManager = new OptionsManager();
+        $this->state = GameState::LOBBY;
+        $this->lobbyPlayers = $users;
+    }
+    
+    public function assignRoles() {
+        $players = $this->roleStrategy->assign($this->lobbyPlayers, $this->optionsManager);
 
         foreach ($players as $player) {
-            $this->players[$player->getId()] = $player;
+            $this->livingPlayers[$player->getId()] = $player;
             $this->originalPlayers[$player->getId()] = $player;
         }
+        
     }
-
+        
     public function getRoleStrategy()
     {
         return $this->roleStrategy;
@@ -47,14 +56,47 @@ class Game
     /**
      * @return \Slack\User[]
      */
-    public function getPlayers()
+    public function getLobbyPlayers()
     {
-        return $this->players;
+        return $this->lobbyPlayers;
     }
 
-    public function removePlayer($player_id)
+    public function addLobbyPlayer($user)
     {
-        unset($this->players[$player_id]);
+        if ($this->state == GameState::LOBBY) {            
+            $player_id = $user->getId();
+            if (! isset($this->lobbyPlayers[$player_id])){
+                $this->lobbyPlayers[$player_id] =$user;                
+            }
+        }
+    }
+        
+    public function removeLobbyPlayer($player_id)
+    {
+        unset($this->lobbyPlayers[$player_id]);
+    }
+
+    /**
+     * @return \Slack\User[]
+     */
+    public function getLivingPlayers()
+    {
+        return $this->livingPlayers;
+    }
+
+    /**
+     * @return \Slack\User[]
+     */
+    public function getDeadPlayers()
+    {
+        return $this->deadPlayers;
+    }
+
+    public function killPlayer($player_id)
+    {
+        $player = $this->livingPlayers[$player_id];
+        unset($this->livingPlayers[$player_id]);
+        $this->deadPlayers[$player_id] = $player;
     }
 
     /**
@@ -72,7 +114,7 @@ class Game
     {
         $werewolves = [];
 
-        foreach ($this->players as $player) {
+        foreach ($this->livingPlayers as $player) {
             if ($player->role == $roleType) {
                 $werewolves[] = $player;
             }
@@ -97,8 +139,9 @@ class Game
         return $werewolves;
     }
 
-    public function hasPlayer($playerId) {
-        return isset($this->players[$playerId]);
+    public function isPlayerAlive($playerId)
+    {
+        return isset($this->livingPlayers[$playerId]);
     }
 
     /**
@@ -106,9 +149,10 @@ class Game
      *
      * @return \Slack\User|bool
      */
-    public function getPlayerById($id) {
-        if($this->hasPlayer($id)) {
-            return $this->players[$id];
+    public function getPlayerById($id)
+    {
+        if (isset($this->originalPlayers[$id])) {
+            return $this->originalPlayers[$id];
         }
 
         return false;
@@ -164,9 +208,27 @@ class Game
         return false;
     }
 
+    public function clearPlayerVote($voterId)
+    {        
+        foreach ($this->votes as $voted => $voters)
+        {
+            foreach ($voters as $voterKey => $voter)
+            {
+                if ($voter == $voterId) {
+                    //Remove voter
+                    unset($this->votes[$voted][$voterKey]);
+                    //Clear empty arrays
+                    if (count($this->votes[$voted]) == 0) {
+                        unset($this->votes[$voted]);
+                    }
+                }                
+            }            
+        }
+    }
+
     public function votingFinished()
     {
-        foreach ($this->players as $player) {
+        foreach ($this->livingPlayers as $player) {
             if ( ! $this->hasPlayerVoted($player->getId())) {
                 return false;
             }
@@ -185,7 +247,7 @@ class Game
         $numWerewolves = $this->getNumRole(Role::WEREWOLF);
         $numTanner = $this->getNumRole(Role::TANNER);
 
-        $numGood = count($this->getPlayers()) - $numWerewolves;
+        $numGood = count($this->getLivingPlayers()) - $numWerewolves;
 
         if ($numTanner == 0) {
             if ($this->getOriginalNumRole(Role::TANNER) > 0) {

@@ -19,8 +19,6 @@ class VoteCommand extends Command
             throw new InvalidArgumentException("Must specify a player");
         }
 
-        $this->args[0] = UserIdFormatter::format($this->args[0]);
-
         $this->game = $this->gameManager->getGame($this->channel);
 
         if ( ! $this->game) {
@@ -32,12 +30,17 @@ class VoteCommand extends Command
         }
 
         // Voter should be alive
-        if ( ! $this->game->hasPlayer($this->userId)) {
+        if ( ! $this->game->isPlayerAlive($this->userId)) {
             throw new Exception("Can't vote if dead.");
         }
 
+        $this->args[0] = UserIdFormatter::format($this->args[0], $this->game->getOriginalPlayers());
+echo $this->args[0];
         // Person player is voting for should also be alive
-        if ( ! $this->game->hasPlayer($this->args[0])) {
+        if ( ! $this->game->isPlayerAlive($this->args[0])
+                && $this->args[0] != 'noone'
+                && $this->args[0] != 'clear') {
+            echo 'not found';
             throw new Exception("Voted player not found in game.");
         }
     }

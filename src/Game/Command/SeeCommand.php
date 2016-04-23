@@ -108,6 +108,7 @@ class SeeCommand extends Command
             throw new InvalidArgumentException();
         }
 
+        $this->args[1] = UserIdFormatter::format($this->args[1], $this->game->getOriginalPlayers());
         $this->chosenUserId = $this->args[1];
 
         $player = $this->game->getPlayerById($this->userId);
@@ -121,6 +122,15 @@ class SeeCommand extends Command
                  );
 
             throw new InvalidArgumentException();
+        }
+
+        // Player should be alive
+        if ( ! $this->game->isPlayerAlive($this->userId)) {
+            $client->getChannelGroupOrDMByID($this->channel)
+                ->then(function (ChannelInterface $channel) use ($client) {
+                    $client->send(":warning: You aren't alive in the specified channel.", $channel);
+                });
+            throw new Exception("Can't See if dead.");
         }
 
         if ($player->role != Role::SEER) {
@@ -152,7 +162,7 @@ class SeeCommand extends Command
     {
         $client = $this->client;
 
-        foreach ($this->game->getPlayers() as $player) {
+        foreach ($this->game->getLivingPlayers() as $player) {
             if (! strstr($this->chosenUserId, $player->getId())) {
                 continue;
             }
